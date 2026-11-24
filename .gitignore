@@ -7,3 +7,8 @@ build/verify_multi/
 
 # 日志
 *.log
+
+# Dev-only helpers (contain localized test data)
+build/verify_*.ps1
+build/make_screenshot.ps1
+app/settings.json

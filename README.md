@@ -1,192 +1,160 @@
-# ChatGPT 定时发送助手（ChatGPT Timed Sender）
+# ChatGPT Timed Sender
+
+[English](README.md) | [中文](README.zh-CN.md)
 
 ![Logo](docs/icon.png)
 
-一个运行在 Windows 上的便携式小工具：在指定时间自动操作 **ChatGPT 桌面端**，切换到指定的「项目 → 聊天」，粘贴预设内容并发送，同时自动截图留证。适合需要定时触发 ChatGPT 对话、批量发送提示词的场景。
+A portable Windows tool that sends a scheduled message to a **specific project chat in the ChatGPT desktop app** — built for ChatGPT usage-limit scenarios (5-hour or weekly limits).
 
-> 本项目仅供个人学习与研究使用，**严禁任何形式的商业使用**。详见 [LICENSE](LICENSE)。
-> ChatGPT 是 OpenAI 的商标，本项目与 OpenAI 无任何关联。
+When the quota runs out, ChatGPT resets it after a waiting period that often falls during the night or your rest time. Instead of waking up to send a message manually, schedule tasks in advance. If you still have a reset credit, you can also reset usage and send immediately.
 
-![界面截图](docs/screenshot.png)
+> Personal and non-commercial use only. Commercial use is prohibited. See [LICENSE](LICENSE).
+> ChatGPT is a trademark of OpenAI. This project is not affiliated with OpenAI.
 
-## 功能特性
+![Screenshot](docs/screenshot.png)
 
-- **图形界面 + 便携 EXE**：双击 `ChatGPTAutoSender.exe` 即用，无需安装、无需命令行。
-- **多任务**：可添加任意数量任务，通过“选择”列勾选需要执行的任务，每个任务独立配置：
-  - 执行时间（绝对时间 / 相对时间）
-  - 项目名称、聊天名称
-  - 发送内容（不限长度与格式，支持多行）
-  - 是否在额度不足时自动点击「重置使用量」
-- **两种时间模式**
-  - 绝对时间：直接输入 `yyyy-MM-dd HH:mm:ss`，也可用日期/时间控件选择，两者自动同步。
-  - 相对时间：填写“从现在起 X 小时 Y 分钟”，保存时换算为具体时间。
-- **按时间顺序执行**：所有任务按执行时间先后依次运行，互不阻塞。
-- **等待界面反馈**：每一步操作后都会轮询等待 ChatGPT 的界面反馈（窗口前台、聊天标题、输入框、发送按钮状态），避免因加载慢导致误操作。
-- **安全防护**：聊天无法确认打开时自动跳过，不会把内容发到错误聊天；额度不足时不会强行发送；单个任务失败不影响其他任务。
-- **风险提示**：多个已勾选任务同时启用“重置额度”时，执行前会提示可能浪费重置机会。
-- **多显示器截图**：优先截取 ChatGPT 窗口区域；窗口句柄异常时回退截取全部虚拟桌面。
-- **本地化输出**：日志、截图、配置全部保存在软件目录下，不写入系统临时目录或其他磁盘位置。
+## Features
 
-## 目录结构
+- **Portable EXE** — double-click `ChatGPTAutoSender.exe`; no installation, no console window.
+- **Multiple tasks** — each task has its own time, project, chat, message and reset option. Check only the tasks you want to run.
+- **Absolute or relative time** — type `yyyy-MM-dd HH:mm:ss` directly, or use the date/time pickers (they stay in sync). Relative time is calculated when you save.
+- **Waits for UI feedback** — after every action the tool polls ChatGPT (window focus, chat title, composer, send-button state) instead of using fixed delays.
+- **Safe failure handling** — if a project/chat cannot be confirmed, the task is skipped instead of sending to the wrong chat. A quota-blocked task does not stop other tasks.
+- **Reset quota option** — if sending is blocked by quota, the task can click “Reset usage” once (consumes one reset credit). A warning appears when several checked tasks enable it.
+- **Multi-monitor screenshots** — captures the ChatGPT window first (fallback: the full virtual desktop).
+- **Bilingual UI** — English / 中文 switch in the app; all outputs stay inside the app folder.
+- **Local only** — no telemetry, no network uploads; logs and screenshots are written under `output\`.
 
-```
-ChatGPTAutoSender/
-├─ ChatGPTAutoSender.exe   主程序（双击启动）
-├─ app/
-│  ├─ MainWindow.ps1       界面逻辑
-│  ├─ Engine.ps1           自动化执行引擎
-│  ├─ Interop.dll          系统 API 封装
-│  ├─ app.ico              程序图标
-│  └─ icon.png             界面 Logo
-├─ build/                  构建与开发验证脚本
-│  ├─ build.ps1
-│  ├─ make_icon.ps1
-│  ├─ Launcher.cs
-│  ├─ Interop.cs
-│  └─ verify_ui.ps1
-└─ output/                 运行产物（自动创建）
-   └─ 20261124_211908/
-      ├─ run.log
-      ├─ config.json
-      └─ task01/
-         ├─ 01_activated.png
-         ├─ 02_chat.png
-         ├─ 03_input.png
-         └─ 04_after_send.png
-```
+## How it differs from ChatGPT’s built-in Scheduled Tasks
 
-## 系统要求
+ChatGPT has a native **Scheduled** feature. According to OpenAI’s help center:
 
-- Windows 10 / Windows 11（x64 或 x86）
-- 已安装并登录 **ChatGPT 桌面端**，保持运行
-- 系统自带 Windows PowerShell 5.1 与 .NET Framework 4.x（Windows 10/11 默认具备）
-- 无需管理员权限
+- Scheduled tasks run as their own task conversations and are managed on the **Scheduled** page.
+- Tasks created in a project **cannot access uploaded files or files stored in that project**.
+- Scheduled tasks do **not** support GPTs or locked chats.
+- Completed tasks still consume your plan’s usage allowance; active-task limits depend on the plan (3 for Free/Go, 5 for Plus, 10 for Business/Edu, 15 for Pro/Enterprise).
+- Hourly schedules and exact delivery times require an eligible paid plan.
 
-## 快速开始
+Native Tasks are the better choice if you only need a prompt to run on a schedule inside ChatGPT.
 
-1. 下载或克隆本仓库到本地任意目录（整个文件夹可放在非系统盘）。
-2. 双击 `ChatGPTAutoSender.exe` 启动。
-3. 点击「添加任务」，填写执行时间、项目、聊天、发送内容。
-4. 点击「开始执行」，程序等待到任务时间后自动操作 ChatGPT。
+This tool targets a different case: **injecting a message into an existing project conversation**, with an optional quota-reset click and local screenshot evidence. It works by simulating the desktop UI, so it is inherently more fragile than an official feature and may break when ChatGPT’s UI changes.
 
-## 使用教程
+## Similar projects
 
-### 1. 添加任务
+- [jetamine/chatgpt-auto_reset](https://github.com/jetamine/chatgpt-auto_reset) — Windows automation (Playwright + Task Scheduler) that sends a scheduled message to an existing ChatGPT conversation, aimed at the 5-hour limit. This is the closest match found.
+- [adamlui/chatgpt-auto-continue](https://github.com/adamlui/chatgpt-auto-continue) — browser extension that automatically continues cut-off replies; not scheduled sending.
+- [unsnooze](https://www.npmjs.com/package/unsnooze) — resumes usage-limit-stopped CLI coding sessions (Claude Code, Codex CLI, etc.) when the limit resets; not for the ChatGPT desktop UI.
 
-点击左下角 **添加任务**，在弹出的对话框中依次填写：
+## Requirements
 
-| 字段 | 说明 |
+- Windows 10/11 (x64 or x86)
+- ChatGPT desktop app installed, signed in and running
+- Windows PowerShell 5.1 and .NET Framework 4.x (included in Windows 10/11)
+- No administrator rights required
+
+## Quick start
+
+1. Download or clone this repository. Keep the whole folder together (it is portable; you may move it to another drive).
+2. Double-click `ChatGPTAutoSender.exe`.
+3. Click **Add Task**, fill in time, project, chat and message.
+4. Check the tasks you want, then click **Start**.
+
+## Usage
+
+### Add / edit tasks
+
+| Field | Description |
 | --- | --- |
-| 执行时间 | 支持绝对时间与相对时间，见下方说明 |
-| 项目名称 | 左侧「项目」列表中的名称；留空表示不切换项目 |
-| 聊天名称 | 项目下的会话标题；留空表示使用当前打开的聊天 |
-| 发送内容 | 要发送的文本，支持多行、不限长度 |
-| 重置额度 | 勾选后，若发送按钮因额度不足被禁用，会自动点击一次「重置使用量」 |
+| Time | Absolute (`yyyy-MM-dd HH:mm:ss`) or relative (from now X h Y m) |
+| Project | Project name shown in ChatGPT’s project list; empty = keep current project |
+| Chat | Chat title under that project; empty = use the current chat |
+| Message | Text to send; any length, multi-line supported |
+| Reset quota | Per-task: click “Reset usage” once if the send button is disabled by quota |
 
-**绝对时间**
+- Absolute time: type it or pick it; both stay in sync.
+- Relative time: calculated from the moment you click **Save**.
+- Tasks are sorted by time and executed in that order.
+- Use **Edit** / **Delete** or double-click a row to modify a task.
 
-- 直接在输入框输入 `2026-12-31 09:30:00`；
-- 或使用右侧日期、时间控件选择，输入框会自动同步；
-- 格式支持 `yyyy-MM-dd HH:mm:ss`、`yyyy-MM-dd HH:mm`、`yyyy/MM/dd HH:mm`。
+### Run tasks
 
-**相对时间**
+- Check the **Run** column for the tasks you want.
+- Click **Start** and confirm. The status bar shows the next task and countdown.
+- **Cancel** stops the current run immediately.
+- If two or more checked tasks enable “Reset quota”, a warning explains that reset credits may be wasted.
 
-- 选择「相对时间」，填写「从现在起 X 时 Y 分 后执行」；
-- 点击保存时按当前系统时间计算具体执行时间；
-- 相对时间不能设置为 0。
+### Output
 
-### 2. 管理任务
+Each run creates `output\yyyyMMdd_HHmmss\`:
 
-- **编辑任务**：选中行后点击「编辑任务」，或直接双击该行；
-- **删除任务**：选中行后点击「删除任务」并确认；
-- 任务列表会自动按执行时间先后排序。
+```
+run.log                Full execution log (English)
+config.json            Snapshot of this run
+task01\01_activated.png
+task01\02_chat.png
+task01\03_input.png
+task01\04_after_send.png
+```
 
-### 3. 开始执行
+Screenshots capture the ChatGPT window region (multi-monitor supported); if the window handle is unavailable, the whole virtual desktop is captured.
 
-- 点击「开始执行」，确认弹窗后进入等待状态；
-- 状态栏显示下一任务时间与剩余倒计时；
-- 需要中止时点击「取消任务」，正在等待或执行的任务会立即停止。
+## Important notes
 
-### 4. 查看结果
+1. Keep ChatGPT running and signed in. This tool simulates mouse/keyboard input; it is not an official API.
+2. Keep the computer awake and unlocked. Locking the screen or sleep will break keystrokes and screenshots.
+3. Do not use the mouse or keyboard while a task is executing.
+4. Project and chat names must match the UI exactly (case and punctuation matter). If a chat cannot be confirmed, the task is skipped rather than guessing.
+5. “Reset quota” consumes a reset credit. Without it, a blocked message stays in the composer and the task is skipped; other tasks continue independently.
+6. UI changes by ChatGPT may break element detection; check `run.log` for the failing step.
+7. UI automation may conflict with OpenAI’s terms of service. Use at your own risk and only for personal, non-commercial purposes.
 
-- 点击「打开输出目录」可打开本次运行的输出文件夹；
-- 每次运行自动创建 `output\年月日_时分秒\`：
-  - `run.log`：完整执行日志；
-  - `config.json`：本次任务配置快照；
-  - `taskNN\`：该任务的各步骤截图。
+## FAQ
 
-## 注意事项（务必阅读）
+**Nothing happens after clicking Start?**
+Confirm at least one task is checked and the time is correct. The status bar shows a countdown while waiting.
 
-1. **ChatGPT 必须保持运行并已登录**；本工具通过模拟鼠标键盘操作界面，不使用官方 API。
-2. 执行期间请保持电脑**唤醒且未锁屏**。锁屏、睡眠或切换用户会导致按键与截图失效；建议临时关闭睡眠和屏保。
-3. 自动化执行仅需数秒到数十秒，期间**请勿操作键鼠**，避免干扰输入。
-4. 项目名、聊天名需与界面显示**完全一致**（区分大小写与标点）；无法确认聊天时会跳过该任务而不是猜测。
-5. 勾选「重置额度」会**消耗一次重置机会**；若额度未恢复且未勾选，消息会保留在输入框，日志标记 `BLOCKED`。
-6. 截图优先截取 ChatGPT 窗口区域，支持多显示器；窗口最小化时会先自动恢复再截图。
-7. 若 ChatGPT 客户端改版导致控件名称变化，可能出现定位失败；请查看 `run.log` 中失败的具体步骤。
-8. 程序不联网上传任何数据；所有日志与截图仅保存在本地软件目录。
-9. **禁止商业使用**，包括但不限于销售、付费分发、商业产品集成或以营利为目的的部署。
+**Log shows a skipped task?**
+Reasons include: project/chat not found, ChatGPT not in the foreground, composer not found, or quota-blocked sending. Each reason is written in `run.log` with the task index.
 
-## 常见问题（FAQ）
+**Can it run while the screen is locked?**
+No. Windows UI automation and screenshots require an unlocked desktop.
 
-**Q：点击开始后一直显示等待中？**
-A：这是正常状态，程序会等到任务时间再执行；状态栏会显示下一任务与倒计时。
+**Does it work with the English ChatGPT UI?**
+Yes. Send/reset button detection supports English and Chinese UI labels.
 
-**Q：日志出现 `BLOCKED`？**
-A：说明发送按钮因额度或速率限制被禁用。可在任务中勾选「重置额度」，或等待额度恢复后重新执行。
+**Why does a console window flash at startup?**
+The app is powered by Windows PowerShell; the script hides the console automatically.
 
-**Q：提示“未找到 ChatGPT 窗口”？**
-A：请先启动并登录 ChatGPT 桌面端；若窗口被最小化，程序会尝试恢复，但仍建议保持窗口存在。
-
-**Q：执行后截图里没有 ChatGPT？**
-A：请确认执行期间 ChatGPT 窗口未被关闭或锁屏；程序会在执行时自动将窗口置于前台。
-
-**Q：任务时间已过还能保存吗？**
-A：可以，程序会提示确认；确认后该任务会立即执行。
-
-**Q：为什么 EXE 启动时会短暂出现黑色窗口？**
-A：主程序基于系统 PowerShell 运行，脚本会自动隐藏该控制台窗口，属正常现象。
-
-**Q：杀毒软件提示风险？**
-A：程序包含模拟键鼠的自动化代码，可能被启发式规则误报。源码完全公开，可自行审阅或使用 `build\build.ps1` 重新编译。
-
-## 构建
-
-如需自行编译：
+## Build
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File build\make_icon.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File build\build.ps1
 ```
 
-- 依赖系统自带 `csc.exe`（.NET Framework 4.x）；
-- 生成 `ChatGPTAutoSender.exe` 与 `app\Interop.dll`。
+Requires the built-in .NET Framework `csc.exe`. Outputs `ChatGPTAutoSender.exe` and `app\Interop.dll`.
 
-## 版本
+## Version
 
-- **v1.0.1**
-  - 任务列表新增“选择”勾选列，只执行勾选的任务
-  - 修复执行中按钮文字发灰看不清的问题，所有状态保持清晰
-  - 多个已勾选任务启用“重置额度”时增加风险确认提示
-  - 单个任务失败或额度不足时仅跳过该任务，其余任务继续按各自时间执行
-  - 找不到项目/聊天时输出明确的错误提示（便于核对名称）
-  - 界面显示作者信息（Yu010912 · 2206394025@qq.com）
-- **v1.0.0** 首次发布
-  - 多任务、独立时间与重置额度设置
-  - 绝对时间 / 相对时间，手动输入与控件同步
-  - 等待界面反馈、错误聊天安全跳过、额度拦截
-  - 多显示器截图、本地化输出、便携 EXE 与程序图标
+- **v1.1.0** — English/Chinese UI with language switch; About/License dialogs; English execution logs; bilingual send/reset button detection; layout polish for both languages.
+- **v1.0.1** — task selection, running-state text fix, per-task failure isolation, reset-quota warning, author info.
+- **v1.0.0** — first release.
 
-## 许可证
+## License
 
-本项目采用 **非商业许可（Non-Commercial License）**：
-允许个人学习、研究与非商业用途的复制、修改与分发；**禁止任何商业使用**。
-再分发时必须保留 [LICENSE](LICENSE) 与作者信息。
+**Non-Commercial License.** Personal, educational and research use is allowed. Commercial use is strictly prohibited. Redistribution must retain the license and author attribution. See [LICENSE](LICENSE).
 
-## 作者
+## Author
 
-- GitHub：[@Yu010912](https://github.com/Yu010912)
-- 邮箱：2206394025@qq.com
-- 版权：Copyright © 2026 Yu010912
+- GitHub: [@Yu010912](https://github.com/Yu010912)
+- Email: 2206394025@qq.com
+- Copyright © 2026 Yu010912
 
-如果这个工具对你有帮助，欢迎点一个 Star。
+If this tool helps you, a star is appreciated.
+
+## Sources
+
+- [Scheduled tasks in ChatGPT — OpenAI Help Center](https://help.openai.com/en/articles/10291617-scheduled-tasks-in-chatgpt)
+- [jetamine/chatgpt-auto_reset](https://github.com/jetamine/chatgpt-auto_reset)
+- [adamlui/chatgpt-auto-continue](https://github.com/adamlui/chatgpt-auto-continue)
+- [unsnooze (npm)](https://www.npmjs.com/package/unsnooze)

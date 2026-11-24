@@ -1,5 +1,5 @@
-﻿# ChatGPT 定时发送助手 - 执行引擎（无界面，由界面程序调用）
-# 所有输出保存在软件目录 output 下
+﻿# ChatGPT Timed Sender - execution engine (no UI, launched by the app)
+# All outputs stay inside the app folder.
 
 param([string]$ConfigPath)
 
@@ -10,7 +10,7 @@ Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 
-# ---------- 路径（便携：仅使用软件目录） ----------
+# ---------- Paths (portable: app folder only) ----------
 $root = $env:CHATGPT_SENDER_HOME
 if ($root) {
     $appDir = Join-Path $root 'app'
@@ -41,8 +41,11 @@ function Log([string]$m) {
     Write-Host $line
 }
 
-$SendLabel  = [string]([char]0x53D1) + [char]0x9001
-$ResetLabel = [string]([char]0x91CD) + [char]0x7F6E + [char]0x4F7F + [char]0x7528 + [char]0x91CF
+# Localized button names are built from code points so the source stays ASCII.
+$cnSend = [string]([char]0x53D1) + [char]0x9001
+$cnReset = [string]([char]0x91CD) + [char]0x7F6E + [char]0x4F7F + [char]0x7528 + [char]0x91CF
+$script:sendPattern = '(?i)(^Send$|Send message|' + $cnSend + ')'
+$script:resetPattern = '(?i)(reset.*usage|reset.*limit|' + $cnReset + ')'
 
 $script:win = $null
 $script:hWnd = [IntPtr]::Zero
@@ -67,7 +70,7 @@ function Shot([string]$folder, [string]$name) {
             }
         }
     } catch {
-        Log "窗口截图失败：$($_.Exception.Message)"
+        Log "Window screenshot failed: $($_.Exception.Message)"
     }
     if (-not $saved) {
         try {
@@ -79,10 +82,10 @@ function Shot([string]$folder, [string]$name) {
             $g.Dispose(); $bmp.Dispose()
             $saved = $true
         } catch {
-            Log "全屏截图失败：$($_.Exception.Message)"
+            Log "Full-screen screenshot failed: $($_.Exception.Message)"
         }
     }
-    if ($saved) { Log "截图：$file" } else { Log "截图未生成：$name" }
+    if ($saved) { Log "Screenshot: $file" } else { Log "Screenshot not created: $name" }
 }
 function KeyDownUp([byte]$vk) {
     [ChatGPTTool.Win32]::keybd_event($vk, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 100
@@ -106,13 +109,23 @@ function Find-ByName([string]$name, [string[]]$typeNames) {
     }
     return $list
 }
+function Find-ButtonByRegex([string]$pattern) {
+    if (-not $script:win) { return $null }
+    $all = $script:win.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+    foreach ($el in $all) {
+        if ($el.Current.ControlType.ProgrammaticName -ne 'ControlType.Button') { continue }
+        if ($el.Current.IsOffscreen) { continue }
+        if ($el.Current.Name -match $pattern) { return $el }
+    }
+    return $null
+}
 function Invoke-Control($el) {
     try {
         $p = $null
         if ($el.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$p)) { $p.Invoke(); return $true }
         if ($el.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$p)) { $p.Select(); return $true }
     } catch {
-        Log "控件 Invoke 失败：$($_.Exception.Message)"
+        Log "Control invoke failed: $($_.Exception.Message)"
     }
     try {
         $r = $el.Current.BoundingRectangle
@@ -126,7 +139,7 @@ function Invoke-Control($el) {
         [ChatGPTTool.Win32]::mouse_event(0x04, 0, 0, 0, [UIntPtr]::Zero)
         return $true
     } catch {
-        Log "鼠标点击失败：$($_.Exception.Message)"
+        Log "Mouse click failed: $($_.Exception.Message)"
         return $false
     }
 }
@@ -139,11 +152,7 @@ function Select-BestControl($items) {
     return ($sorted | Select-Object -First 1)
 }
 function Get-SendButton {
-    $all = $script:win.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
-    foreach ($el in $all) {
-        if ($el.Current.ControlType.ProgrammaticName -eq 'ControlType.Button' -and $el.Current.Name -eq $SendLabel -and -not $el.Current.IsOffscreen) { return $el }
-    }
-    return $null
+    return (Find-ButtonByRegex $script:sendPattern)
 }
 function Find-Composer {
     $edits = @()
@@ -208,36 +217,36 @@ function Wait-ForSendDone([int]$timeoutSec) {
     return $false
 }
 function Open-Chat([string]$ProjectName, [string]$ChatName) {
-    if (-not $ChatName) { Log '未指定聊天名称，使用当前聊天'; return $true }
-    if ((Find-ByName $ChatName @('ControlType.Document')).Count -gt 0) { Log "目标聊天已打开：$ChatName"; return $true }
+    if (-not $ChatName) { Log 'No chat name given; using the current chat'; return $true }
+    if ((Find-ByName $ChatName @('ControlType.Document')).Count -gt 0) { Log "Target chat is already open: $ChatName"; return $true }
 
     for ($attempt = 1; $attempt -le 2; $attempt++) {
         if ($ProjectName -and $attempt -eq 1) {
             $proj = Find-ByName $ProjectName @('ControlType.Group', 'ControlType.Button', 'ControlType.ListItem', 'ControlType.TreeItem')
             if ($proj.Count -gt 0) {
-                Log "点击项目：$ProjectName"
+                Log "Clicking project: $ProjectName"
                 [void](Invoke-Control (Select-BestControl $proj))
                 Start-Sleep -Milliseconds 1500
             } else {
-                Log "提示：未找到项目「$ProjectName」，请核对左侧项目列表中的名称（区分大小写与符号）"
+                Log "Project not found: '$ProjectName'. Check the exact name in the project list (case and punctuation matter)."
             }
         }
         $chats = Find-ByName $ChatName @('ControlType.Group', 'ControlType.Button', 'ControlType.ListItem', 'ControlType.TreeItem')
         if ($chats.Count -gt 0) {
-            Log "点击聊天：$ChatName（第 $attempt 次尝试）"
+            Log "Clicking chat: $ChatName (attempt $attempt)"
             [void](Invoke-Control (Select-BestControl $chats))
             if (Wait-ForDocument $ChatName 12) {
-                Log '已通过侧边栏打开聊天'
+                Log 'Chat opened from the sidebar'
                 return $true
             }
-            Log '点击后暂未检测到聊天标题，等待后重试'
+            Log 'Chat title not detected yet; retrying after a short wait'
         } else {
-            Log "提示：侧边栏未找到聊天「$ChatName」，请核对项目下的聊天标题是否与界面完全一致"
+            Log "Chat not found in the sidebar: '$ChatName'. Check the exact chat title in that project."
         }
         Start-Sleep -Milliseconds 800
     }
 
-    Log '尝试使用聊天搜索（Ctrl+K）'
+    Log 'Trying chat search (Ctrl+K)'
     $ws2 = New-Object -ComObject WScript.Shell
     if ($proc) { [void]$ws2.AppActivate([int]$proc.Id) }
     Start-Sleep -Milliseconds 600
@@ -248,19 +257,19 @@ function Open-Chat([string]$ProjectName, [string]$ChatName) {
     Start-Sleep -Milliseconds 1000
     KeyDownUp 0x0D
     if (Wait-ForDocument $ChatName 15) {
-        Log '已通过搜索打开聊天'
+        Log 'Chat opened from search'
         return $true
     }
     KeyDownUp 0x1B
-    Log "错误：无法打开聊天「$ChatName」，已跳过发送以避免发错聊天"
+    Log "Could not open chat '$ChatName'. Skipping this task to avoid sending to the wrong chat."
     return $false
 }
 
-Log '===== ChatGPT 定时发送助手（引擎启动） ====='
-Log "软件目录：$root"
-Log "输出目录：$runFolder"
-Log "任务数量：$($tasks.Count)"
-if ($dryRun) { Log '试运行模式：只执行到粘贴，不发送' }
+Log '===== ChatGPT Timed Sender (engine started) ====='
+Log "App folder: $root"
+Log "Output folder: $runFolder"
+Log "Task count: $($tasks.Count)"
+if ($dryRun) { Log 'Dry run: paste and screenshot only, no sending' }
 
 $sortedTasks = @($tasks | Sort-Object { [datetime]::Parse([string]$_.Time) })
 $okCount = 0
@@ -277,34 +286,34 @@ foreach ($t in $sortedTasks) {
     $taskFolder = Join-Path $runFolder ("task{0:00}" -f $index)
     if (-not (Test-Path $taskFolder)) { New-Item -ItemType Directory -Path $taskFolder -Force | Out-Null }
 
-    Log "===== 任务 $index / $($sortedTasks.Count)：时间=$($taskTime.ToString('yyyy-MM-dd HH:mm:ss'))，项目='$proj'，聊天='$chat' ====="
+    Log "===== Task $index / $($sortedTasks.Count): time=$($taskTime.ToString('yyyy-MM-dd HH:mm:ss')), project='$proj', chat='$chat' ====="
 
     if ((Get-Date) -lt $taskTime) {
-        Log "等待到任务时间 $($taskTime.ToString('yyyy-MM-dd HH:mm:ss')) ..."
+        Log "Waiting until $($taskTime.ToString('yyyy-MM-dd HH:mm:ss')) ..."
         $lastReport = -1
         while ((Get-Date) -lt $taskTime) {
             $left = [int]($taskTime - (Get-Date)).TotalSeconds
             if ($left -ne $lastReport -and ($left % 60) -eq 0) {
                 $lastReport = $left
-                Log "等待中，剩余 $left 秒"
+                Log "Waiting, $left seconds left"
             }
             Start-Sleep -Milliseconds 200
         }
     } else {
-        Log '任务时间已过，立即执行'
+        Log 'Task time already passed; running now'
     }
-    Log '到达任务时间，开始自动化操作'
+    Log 'Task time reached; starting automation'
 
     try {
         $proc = $null
         for ($r = 1; $r -le 3; $r++) {
             $proc = Get-Process ChatGPT -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
             if ($proc) { break }
-            Log "第 $r 次未找到 ChatGPT 窗口，2 秒后重试"
+            Log "ChatGPT window not found (attempt $r); retrying in 2 seconds"
             Start-Sleep -Seconds 2
         }
         if (-not $proc) {
-            Log '错误：未找到 ChatGPT 窗口，请先启动并登录 ChatGPT 桌面端。后续任务无法执行。'
+            Log 'ChatGPT window not found. Start and sign in to the ChatGPT desktop app. Remaining tasks cannot run.'
             break
         }
         $script:hWnd = [IntPtr]$proc.MainWindowHandle
@@ -312,12 +321,12 @@ foreach ($t in $sortedTasks) {
         $ws = New-Object -ComObject WScript.Shell
         [void]$ws.AppActivate([int]$proc.Id)
         if (-not (Wait-Foreground $proc.Id 6)) {
-            Log "任务 $index 已跳过：ChatGPT 未能切换到前台（可能锁屏或被其他程序占用），未发送任何内容。"
+            Log "Task $index skipped: ChatGPT could not be brought to the foreground (screen locked or another app is blocking). Nothing was sent."
             $skipCount++
             Shot $taskFolder '01_not_foreground'
             continue
         }
-        Log 'ChatGPT 已切换到前台'
+        Log 'ChatGPT is in the foreground'
         Start-Sleep -Milliseconds 600
 
         $script:win = $null
@@ -326,18 +335,18 @@ foreach ($t in $sortedTasks) {
             $pidCond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ProcessIdProperty, $proc.Id)
             $script:win = $rootEl.FindFirst([System.Windows.Automation.TreeScope]::Children, $pidCond)
             if ($script:win) { break }
-            Log "第 $r 次未获取 UI 自动化窗口，等待重试"
+            Log "UI Automation window not available (attempt $r); retrying"
             Start-Sleep -Milliseconds 800
         }
         if (-not $script:win) {
-            Log "任务 $index 已跳过：无法连接 ChatGPT 界面（程序可能正在更新或未完成加载）。"
+            Log "Task $index skipped: could not attach to the ChatGPT UI (the app may be updating or still loading)."
             $skipCount++
             continue
         }
         Shot $taskFolder '01_activated'
 
         if (-not (Open-Chat $proj $chat)) {
-            Log "任务 $index 已跳过：无法确认聊天「$chat」已打开，本次未发送任何内容。请核对项目名称「$proj」和聊天名称。"
+            Log "Task $index skipped: chat '$chat' could not be confirmed. Nothing was sent. Check project '$proj' and the chat name."
             $skipCount++
             Shot $taskFolder '02_chat_failed'
             continue
@@ -347,13 +356,13 @@ foreach ($t in $sortedTasks) {
 
         $edit = Wait-ForComposer 10
         if (-not $edit) {
-            Log '未找到输入框，重新激活窗口后重试'
+            Log 'Composer not found; reactivating the window and retrying'
             [void]$ws.AppActivate([int]$proc.Id)
             Start-Sleep -Seconds 1
             $edit = Wait-ForComposer 8
         }
         if (-not $edit) {
-            Log "任务 $index 已跳过：未找到消息输入框，聊天界面可能未完全加载。"
+            Log "Task $index skipped: message composer not found; the chat UI may not be fully loaded."
             $skipCount++
             Shot $taskFolder '03_no_composer'
             continue
@@ -364,7 +373,7 @@ foreach ($t in $sortedTasks) {
             if ($edit.Current.HasKeyboardFocus) { break }
             Start-Sleep -Milliseconds 200
         }
-        Log "已聚焦输入框：$($edit.Current.Name)"
+        Log "Composer focused: $($edit.Current.Name)"
         Start-Sleep -Milliseconds 500
 
         CtrlCombo 0x41
@@ -373,18 +382,18 @@ foreach ($t in $sortedTasks) {
         Set-Clipboard -Value $msg
         $clip = Get-Clipboard -Raw
         if ($clip -ne $msg) {
-            Log '剪贴板内容不一致，重试一次'
+            Log 'Clipboard content mismatch; retrying once'
             Set-Clipboard -Value $msg
             Start-Sleep -Milliseconds 300
             $clip = Get-Clipboard -Raw
         }
-        Log "剪贴板写入完成，内容一致=$($clip -eq $msg)"
+        Log "Clipboard written; content matches=$($clip -eq $msg)"
         CtrlCombo 0x56
         $send = Wait-ForSendEnabled 10
         Shot $taskFolder '03_input'
 
         if ($dryRun) {
-            Log '试运行：已粘贴内容并截图，现在清空输入框，不发送'
+            Log 'Dry run: message pasted and captured; clearing the composer without sending'
             CtrlCombo 0x41
             KeyDownUp 0x2E
             Start-Sleep -Milliseconds 300
@@ -395,34 +404,34 @@ foreach ($t in $sortedTasks) {
 
         if ((!$send) -or (-not $send.Current.IsEnabled)) {
             if ($useReset) {
-                Log '发送按钮被禁用，按任务设置点击“重置使用量”'
-                $resets = Find-ByName $ResetLabel @('ControlType.Button')
-                if ($resets.Count -gt 0) {
-                    [void](Invoke-Control ($resets | Select-Object -First 1))
-                    Log '已点击重置按钮，等待额度生效'
+                Log 'Send button disabled; trying "Reset usage" because this task allows it'
+                $resetBtn = Find-ButtonByRegex $script:resetPattern
+                if ($resetBtn) {
+                    [void](Invoke-Control $resetBtn)
+                    Log 'Reset button clicked; waiting for quota to recover'
                     Start-Sleep -Seconds 4
                     $send = Wait-ForSendEnabled 10
                     Shot $taskFolder '04_after_reset'
                 } else {
-                    Log '未找到重置按钮'
+                    Log 'Reset button not found'
                 }
             }
         }
 
         if ($send -and -not $send.Current.IsEnabled) {
-            Log "任务 $index 已跳过：发送按钮不可用（额度或速率限制），内容保留在输入框。其余任务将继续按各自时间独立执行。"
+            Log "Task $index skipped: send button is disabled (quota or rate limit). The message remains in the composer. Other tasks will continue independently."
             Shot $taskFolder '04_blocked'
             $skipCount++
             continue
         }
 
-        if ($send) { Log "发送按钮可用状态：$($send.Current.IsEnabled)" } else { Log '未找到发送按钮，将按回车尝试' }
+        if ($send) { Log "Send button enabled: $($send.Current.IsEnabled)" } else { Log 'Send button not found; trying Enter' }
 
         KeyDownUp 0x0D
-        Log '已按回车，等待发送结果反馈...'
+        Log 'Enter pressed; waiting for the send result'
         $done = Wait-ForSendDone 15
         if (-not $done) {
-            Log '未确认发送完成，尝试点击发送按钮'
+            Log 'Send not confirmed yet; trying to click the send button'
             $s2 = Get-SendButton
             if ($s2 -and $s2.Current.IsEnabled) {
                 [void](Invoke-Control $s2)
@@ -430,14 +439,14 @@ foreach ($t in $sortedTasks) {
             }
         }
         if ($done) {
-            Log '已确认消息提交'
+            Log 'Message submission confirmed'
         } else {
-            Log "警告：未能确认发送结果，请查看截图。若聊天未收到消息，请检查 ChatGPT 是否异常。"
+            Log 'Warning: could not confirm the send result. Check the screenshots. If the chat did not receive the message, inspect ChatGPT for errors.'
         }
         Shot $taskFolder '04_after_send'
         $okCount++
     } catch {
-        Log "任务 $index 执行异常：$($_.Exception.Message)"
+        Log "Task $index failed with an unexpected error: $($_.Exception.Message)"
         $skipCount++
         try { Shot $taskFolder '99_error' } catch { }
     }
@@ -446,8 +455,8 @@ foreach ($t in $sortedTasks) {
 }
 
 if ($skipCount -gt 0) {
-    Log "全部任务处理结束：成功 $okCount 个，跳过 $skipCount 个（跳过原因见上方日志）。"
+    Log "Finished: $okCount succeeded, $skipCount skipped (see the skip reasons above)."
 } else {
-    Log "全部任务处理结束：成功 $okCount 个，全部任务均已处理。"
+    Log "Finished: $okCount succeeded, all tasks processed."
 }
 exit 0

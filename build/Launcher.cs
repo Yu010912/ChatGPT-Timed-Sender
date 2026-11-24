@@ -11,8 +11,8 @@ using Microsoft.PowerShell;
 [assembly: System.Reflection.AssemblyCompany("Yu010912")]
 [assembly: System.Reflection.AssemblyProduct("ChatGPT 定时发送助手")]
 [assembly: System.Reflection.AssemblyCopyright("Copyright (c) 2026 Yu010912. Non-commercial use only.")]
-[assembly: System.Reflection.AssemblyVersion("1.0.1.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.0.1.0")]
+[assembly: System.Reflection.AssemblyVersion("1.1.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.1.0.0")]
 
 static class Program
 {
