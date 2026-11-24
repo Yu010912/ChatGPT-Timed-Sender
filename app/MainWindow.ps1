@@ -103,7 +103,7 @@ $form.Text = 'ChatGPT 定时发送助手'
 $form.AutoScaleMode = [System.Windows.Forms.AutoScaleMode]::Dpi
 $form.AutoScaleDimensions = New-Object System.Drawing.SizeF(96, 96)
 $form.ClientSize = New-Object System.Drawing.Size(964, 791)
-$form.MinimumSize = New-Object System.Drawing.Size(820, 580)
+$form.MinimumSize = New-Object System.Drawing.Size(900, 580)
 $form.StartPosition = 'CenterScreen'
 $form.BackColor = $C.Bg
 $form.Font = $fontUI
@@ -140,11 +140,17 @@ $lblSub = New-Label '每个任务独立时间 · 绝对/相对时间 · 自动�
 $lblSub.ForeColor = $C.Muted
 $header.Controls.Add($lblSub)
 
-$lblVer = New-Label 'v1.0.0 · 便携版 · 输出仅保存在软件目录' 540 24 400 20
+$lblVer = New-Label 'v1.0.1 · 便携版 · 输出仅保存在软件目录' 540 20 400 18
 $lblVer.TextAlign = 'MiddleRight'
 $lblVer.Anchor = 'Top,Right'
 $lblVer.ForeColor = $C.Muted
 $header.Controls.Add($lblVer)
+
+$lblAuthor = New-Label '作者：Yu010912 · 2206394025@qq.com' 540 38 400 18
+$lblAuthor.TextAlign = 'MiddleRight'
+$lblAuthor.Anchor = 'Top,Right'
+$lblAuthor.ForeColor = $C.Muted
+$header.Controls.Add($lblAuthor)
 
 # ---------- 自适应主体 ----------
 $main = New-Object System.Windows.Forms.TableLayoutPanel
@@ -197,7 +203,7 @@ $grid.BorderStyle = 'None'
 $grid.AllowUserToAddRows = $false
 $grid.AllowUserToDeleteRows = $false
 $grid.AllowUserToResizeRows = $false
-$grid.ReadOnly = $true
+$grid.ReadOnly = $false
 $grid.RowHeadersVisible = $false
 $grid.SelectionMode = 'FullRowSelect'
 $grid.MultiSelect = $false
@@ -219,31 +225,44 @@ $grid.DefaultCellStyle.Padding = New-Object System.Windows.Forms.Padding(6, 0, 6
 $grid.RowTemplate.Height = 34
 $grid.AlternatingRowsDefaultCellStyle.BackColor = $C.GridAlt
 
+$colSel = New-Object System.Windows.Forms.DataGridViewCheckBoxColumn
+$colSel.HeaderText = '选择'
+$colSel.FillWeight = 8
+$colSel.MinimumWidth = 56
+$colSel.ReadOnly = $false
+$colSel.SortMode = 'NotSortable'
+[void]$grid.Columns.Add($colSel)
+
 $colTime = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
 $colTime.HeaderText = '执行时间'
-$colTime.FillWeight = 30
+$colTime.FillWeight = 28
 $colTime.MinimumWidth = 180
+$colTime.ReadOnly = $true
 [void]$grid.Columns.Add($colTime)
 
 $colProj = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
 $colProj.HeaderText = '项目'
-$colProj.FillWeight = 18
+$colProj.FillWeight = 17
+$colProj.ReadOnly = $true
 [void]$grid.Columns.Add($colProj)
 
 $colChat = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
 $colChat.HeaderText = '聊天'
-$colChat.FillWeight = 20
+$colChat.FillWeight = 19
+$colChat.ReadOnly = $true
 [void]$grid.Columns.Add($colChat)
 
 $colMsg = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
 $colMsg.HeaderText = '发送内容'
-$colMsg.FillWeight = 26
+$colMsg.FillWeight = 24
+$colMsg.ReadOnly = $true
 [void]$grid.Columns.Add($colMsg)
 
 $colReset = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
 $colReset.HeaderText = '重置额度'
 $colReset.FillWeight = 12
 $colReset.MinimumWidth = 96
+$colReset.ReadOnly = $true
 [void]$grid.Columns.Add($colReset)
 
 $cardLayout.Controls.Add($grid, 0, 1)
@@ -261,17 +280,18 @@ $taskBottom.Controls.Add($btnAdd)
 $taskBottom.Controls.Add($btnEdit)
 $taskBottom.Controls.Add($btnDel)
 
-$lblHint = New-Label '示例：my_project · My Chat · 支持绝对/相对时间' 330 11 400 20
+$lblHint = New-Label '勾选“选择”列的任务才会执行' 330 11 320 20
 $lblHint.ForeColor = $C.Muted
 $taskBottom.Controls.Add($lblHint)
 
-$lblCount = New-Label '共 0 个任务' 760 11 120 20
+$lblCount = New-Label '共 0 个任务' 707 11 185 20
 $lblCount.TextAlign = 'MiddleRight'
 $lblCount.ForeColor = $C.Muted
 $taskBottom.Controls.Add($lblCount)
 $taskBottom.Add_Resize({
     param($sender, $e)
     $lblCount.Left = [Math]::Max(430, $sender.ClientSize.Width - $lblCount.Width)
+    $lblHint.Width = [Math]::Max(140, $lblCount.Left - $lblHint.Left - 10)
 })
 
 # 操作行
@@ -289,7 +309,6 @@ $btnOpen = New-Button '打开输出目录' 556 4 140 34 $false
 $actionPanel.Controls.Add($btnOpen)
 
 $btnCancel = New-Button '取消任务' 704 4 100 34 $false
-$btnCancel.Enabled = $false
 $actionPanel.Controls.Add($btnCancel)
 
 $btnStart = New-Button '开始执行' 812 4 112 34 $true
@@ -388,8 +407,10 @@ function Normalize-Tasks {
     foreach ($t in $sorted) { [void]$script:Tasks.Add($t) }
 }
 function Refresh-Grid {
+    $script:gridUpdating = $true
     $grid.Rows.Clear()
     $i = 1
+    $selectedCount = 0
     foreach ($t in $script:Tasks) {
         $projText = $t.Project
         if (-not $projText) { $projText = '（不指定）' }
@@ -400,26 +421,22 @@ function Refresh-Grid {
         if ($sum.Length -gt 60) { $sum = $sum.Substring(0, 60) + '…' }
         $resetText = '否'
         if ($t.UseReset) { $resetText = '是' }
-        [void]$grid.Rows.Add($t.Time.ToString('yyyy-MM-dd HH:mm:ss'), $projText, $chatText, $sum, $resetText)
+        if ($t.Selected) { $selectedCount++ }
+        [void]$grid.Rows.Add([bool]$t.Selected, $t.Time.ToString('yyyy-MM-dd HH:mm:ss'), $projText, $chatText, $sum, $resetText)
         $i++
     }
-    $lblCount.Text = "共 $($script:Tasks.Count) 个任务"
+    $script:gridUpdating = $false
+    $lblCount.Text = "共 $($script:Tasks.Count) 个任务 · 勾选 $selectedCount 个"
 }
 function Set-RunningUI([bool]$running) {
     $script:Running = $running
-    $btnStart.Enabled = -not $running
-    $btnCancel.Enabled = $running
-    $btnAdd.Enabled = -not $running
-    $btnEdit.Enabled = -not $running
-    $btnDel.Enabled = -not $running
-    $grid.Enabled = -not $running
     if ($running) {
-        $btnStart.BackColor = $C.MutedBg
-        $btnStart.ForeColor = $C.Muted
+        $btnStart.Text = '执行中…'
     } else {
-        $btnStart.BackColor = $C.Navy
-        $btnStart.ForeColor = [System.Drawing.Color]::White
+        $btnStart.Text = '开始执行'
     }
+    $btnStart.BackColor = $C.Navy
+    $btnStart.ForeColor = [System.Drawing.Color]::White
 }
 function Tail-Log {
     if (-not $script:RunFolder) { return }
@@ -624,14 +641,13 @@ function Show-TaskDialog($task) {
     }
     function Update-TimeMode {
         $abs = $rbAbs.Checked
-        $tTime.Enabled = $abs
-        $dtpDate.Enabled = $abs
-        $dtpTime.Enabled = $abs
-        $numH.Enabled = -not $abs
-        $numM.Enabled = -not $abs
-        $hAbs.ForeColor = $C.Muted
-        $hRel.ForeColor = $C.Muted
-        Update-RelPreview
+        $tTime.Visible = $abs
+        $dtpDate.Visible = $abs
+        $dtpTime.Visible = $abs
+        $hAbs.Visible = $abs
+        $relPanel.Visible = -not $abs
+        $hRel.Visible = -not $abs
+        if (-not $abs) { Update-RelPreview }
     }
 
     $dtpDate.Add_ValueChanged({ Sync-FromPickers })
@@ -690,6 +706,7 @@ function Show-TaskDialog($task) {
             Chat     = $tChat.Text.Trim()
             Message  = $tMsg.Text
             UseReset = [bool]$chkResetDlg.Checked
+            Selected = $true
         }
         $dlg.Close()
     })
@@ -709,6 +726,10 @@ function Show-TaskDialog($task) {
 
 # ---------------- 事件 ----------------
 $btnAdd.Add_Click({
+    if ($script:Running) {
+        [void][System.Windows.Forms.MessageBox]::Show('任务正在执行中，请先点击“取消任务”后再修改任务列表。', '提示', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+        return
+    }
     $r = Show-TaskDialog $null
     if ($r) {
         [void]$script:Tasks.Add($r)
@@ -717,6 +738,10 @@ $btnAdd.Add_Click({
     }
 })
 $btnEdit.Add_Click({
+    if ($script:Running) {
+        [void][System.Windows.Forms.MessageBox]::Show('任务正在执行中，请先点击“取消任务”后再修改任务列表。', '提示', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+        return
+    }
     if ($grid.SelectedRows.Count -eq 0) {
         [void][System.Windows.Forms.MessageBox]::Show('请先在列表中选择一个任务。', '提示', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
         return
@@ -725,12 +750,17 @@ $btnEdit.Add_Click({
     if ($idx -lt 0 -or $idx -ge $script:Tasks.Count) { return }
     $r = Show-TaskDialog $script:Tasks[$idx]
     if ($r) {
+        $r.Selected = [bool]$script:Tasks[$idx].Selected
         $script:Tasks[$idx] = $r
         Normalize-Tasks
         Refresh-Grid
     }
 })
 $btnDel.Add_Click({
+    if ($script:Running) {
+        [void][System.Windows.Forms.MessageBox]::Show('任务正在执行中，请先点击“取消任务”后再修改任务列表。', '提示', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+        return
+    }
     if ($grid.SelectedRows.Count -eq 0) {
         [void][System.Windows.Forms.MessageBox]::Show('请先在列表中选择一个任务。', '提示', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
         return
@@ -745,14 +775,30 @@ $btnDel.Add_Click({
 })
 $grid.Add_CellDoubleClick({
     param($sender, $e)
+    if ($script:Running) { return }
     if ($e.RowIndex -ge 0 -and $e.RowIndex -lt $script:Tasks.Count) {
         $r = Show-TaskDialog $script:Tasks[$e.RowIndex]
         if ($r) {
+            $r.Selected = [bool]$script:Tasks[$e.RowIndex].Selected
             $script:Tasks[$e.RowIndex] = $r
             Normalize-Tasks
             Refresh-Grid
         }
     }
+})
+$grid.Add_CurrentCellDirtyStateChanged({
+    if ($grid.IsCurrentCellDirty) {
+        $grid.CommitEdit([System.Windows.Forms.DataGridViewDataErrorContexts]::Commit)
+    }
+})
+$grid.Add_CellValueChanged({
+    param($sender, $e)
+    if ($script:gridUpdating) { return }
+    if ($e.RowIndex -lt 0 -or $e.RowIndex -ge $script:Tasks.Count) { return }
+    if ($e.ColumnIndex -ne 0) { return }
+    $script:Tasks[$e.RowIndex].Selected = [bool]$grid.Rows[$e.RowIndex].Cells[0].Value
+    $sel = @($script:Tasks | Where-Object { $_.Selected }).Count
+    $lblCount.Text = "共 $($script:Tasks.Count) 个任务 · 勾选 $sel 个"
 })
 $btnOpen.Add_Click({
     $folder = $script:RunFolder
@@ -761,10 +807,9 @@ $btnOpen.Add_Click({
     Start-Process explorer.exe $folder
 })
 $btnCancel.Add_Click({
-    if ($script:EngineProc -and -not $script:EngineProc.HasExited) {
-        try { $script:EngineProc.Kill() } catch { }
-        $rtbLog.AppendText("$(Get-Date -Format 'HH:mm:ss') 已手动取消任务。`r`n")
-    }
+    if (-not $script:EngineProc -or $script:EngineProc.HasExited) { return }
+    try { $script:EngineProc.Kill() } catch { }
+    $rtbLog.AppendText("$(Get-Date -Format 'HH:mm:ss') 已手动取消任务。`r`n")
     $timer.Stop()
     $lblStatus.Text = '已取消'
     $lblStatus.ForeColor = $C.Danger
@@ -777,19 +822,29 @@ $btnStart.Add_Click({
         [void][System.Windows.Forms.MessageBox]::Show('请先添加至少一个发送任务。', '提示', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
         return
     }
-    foreach ($t in $script:Tasks) {
+    $selectedTasks = @($script:Tasks | Where-Object { $_.Selected })
+    if ($selectedTasks.Count -eq 0) {
+        [void][System.Windows.Forms.MessageBox]::Show('请先在“选择”列勾选要执行的任务。', '提示', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
+        return
+    }
+    foreach ($t in $selectedTasks) {
         if (-not $t.Message -or $t.Message.Trim().Length -eq 0) {
-            [void][System.Windows.Forms.MessageBox]::Show('存在内容为空的任务，请检查。', '提示', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
+            [void][System.Windows.Forms.MessageBox]::Show('已勾选的任务中存在内容为空的任务，请检查。', '提示', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
             return
         }
+    }
+    $resetCount = @($selectedTasks | Where-Object { $_.UseReset }).Count
+    if ($resetCount -ge 2) {
+        $warn = [System.Windows.Forms.MessageBox]::Show("已勾选的 $($selectedTasks.Count) 个任务中有 $resetCount 个启用了「重置额度」。`r`n执行时可能重复使用重置操作，导致重置机会被浪费。`r`n`r`n确定继续吗？", '重置额度风险提示', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Warning)
+        if ($warn -ne [System.Windows.Forms.DialogResult]::Yes) { return }
     }
     if (-not (Test-Path $script:EnginePath)) {
         [void][System.Windows.Forms.MessageBox]::Show('未找到执行引擎 app\Engine.ps1，请确认软件文件完整。', '错误', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
         return
     }
 
-    $nextTask = ($script:Tasks | Sort-Object { $_.Time } | Select-Object -First 1)
-    $confirm = [System.Windows.Forms.MessageBox]::Show("共 $($script:Tasks.Count) 个任务，将按时间先后执行。`r`n最近任务时间：$($nextTask.Time.ToString('yyyy-MM-dd HH:mm:ss'))`r`n`r`n现在开始等待并执行吗？", '开始执行', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question)
+    $nextTask = ($selectedTasks | Sort-Object { $_.Time } | Select-Object -First 1)
+    $confirm = [System.Windows.Forms.MessageBox]::Show("已勾选 $($selectedTasks.Count) 个任务，将按时间先后执行。`r`n最近任务时间：$($nextTask.Time.ToString('yyyy-MM-dd HH:mm:ss'))`r`n`r`n现在开始等待并执行吗？", '开始执行', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question)
     if ($confirm -ne [System.Windows.Forms.DialogResult]::Yes) { return }
 
     $outRoot = Join-Path $script:RootDir 'output'
@@ -799,7 +854,7 @@ $btnStart.Add_Click({
     $cfgPath = Join-Path $runFolder 'config.json'
 
     $taskList = @()
-    foreach ($t in $script:Tasks) {
+    foreach ($t in $selectedTasks) {
         $taskList += @{
             Time     = $t.Time.ToString('yyyy-MM-dd HH:mm:ss')
             Project  = [string]$t.Project
@@ -818,7 +873,7 @@ $btnStart.Add_Click({
     $script:RunFolder = $runFolder
     $script:LogOffset = 0
     $rtbLog.Clear()
-    $rtbLog.AppendText("$(Get-Date -Format 'HH:mm:ss') 已启动，共 $($script:Tasks.Count) 个任务，输出目录：$runFolder`r`n")
+    $rtbLog.AppendText("$(Get-Date -Format 'HH:mm:ss') 已启动，勾选 $($selectedTasks.Count) 个任务，输出目录：$runFolder`r`n")
 
     $psExe = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
     if (-not (Test-Path $psExe)) { $psExe = 'powershell' }

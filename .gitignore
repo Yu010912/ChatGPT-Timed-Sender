@@ -3,6 +3,7 @@ output/
 
 # 开发验证截图
 build/verify_ui/
+build/verify_multi/
 
 # 日志
 *.log

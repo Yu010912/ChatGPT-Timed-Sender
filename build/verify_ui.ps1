@@ -121,6 +121,13 @@ function Get-DialogInputs($dlg) {
     $list += Get-Desc $dlg ([System.Windows.Automation.ControlType]::Document)
     return @($list | Sort-Object { $_.Current.BoundingRectangle.Y })
 }
+function Find-TextMatch($win, [string]$pattern) {
+    $all = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+    foreach ($el in $all) {
+        if ($el.Current.Name -match $pattern) { return $el }
+    }
+    return $null
+}
 function Click-MsgButton($msgWin, [string]$pattern) {
     $buttons = Get-Desc $msgWin ([System.Windows.Automation.ControlType]::Button)
     foreach ($b in $buttons) {
@@ -156,12 +163,20 @@ Log ("输入框数量=" + $edits.Count)
 if ($edits.Count -lt 4) { Log 'FAIL: 对话框输入框数量不足'; Stop-Process -Id $pid2 -Force; exit 1 }
 
 [void](Set-EditValue $edits[0] '2026/13/45 99:99')
+Start-Sleep -Milliseconds 300
+$vpDiag = $null
+if ($edits[0].TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$vpDiag)) {
+    Log ("诊断：时间框当前值='" + $vpDiag.Current.Value + "'")
+} else {
+    Log '诊断：时间框不支持 ValuePattern'
+}
 $msgEdits = @($edits | Where-Object { $_.Current.BoundingRectangle.Height -gt 60 })
 if ($msgEdits.Count -gt 0) { [void](Set-EditValue $msgEdits[0] '验证内容') }
 else { [void](Set-EditValue $edits[3] '验证内容') }
 
 $saveBtns = Find-Name $dlg '保存'
 [void](Click-El $saveBtns[0])
+Start-Sleep -Milliseconds 500
 $err = Wait-WinByTitle $pid2 '提示' 4
 if ($err) {
     Log 'PASS: 错误时间被拦截'
@@ -173,6 +188,12 @@ if ($err) {
     $msgEdits = @($edits | Where-Object { $_.Current.BoundingRectangle.Height -gt 60 })
 } else {
     Log 'FAIL: 错误时间未被拦截'
+    foreach ($w in (Get-WinByPid $pid2)) {
+        foreach ($el in $w.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)) {
+            if ($el.Current.ControlType.ProgrammaticName -eq 'ControlType.Window') { Log ("  诊断窗口: " + $el.Current.Name) }
+        }
+    }
+    Shot '03_time_error_missing'
 }
 
 # ---------- 2. 添加任务：正确值 ----------
@@ -186,8 +207,8 @@ $saveBtns = Find-Name $dlg '保存'
 [void](Click-El $saveBtns[0])
 Start-Sleep -Seconds 1
 if (Get-WinByTitle $pid2 '添加任务') { Log 'FAIL: 对话框未关闭'; Shot 'fail_dialog_open' }
-$count1 = Find-Name $win '共 1 个任务'
-if ($count1.Count -gt 0) { Log 'PASS: 任务已添加（共 1 个任务）' } else { Log 'FAIL: 任务计数未更新' }
+$count1 = Find-TextMatch $win '共 1 个任务'
+if ($count1) { Log 'PASS: 任务已添加（共 1 个任务）' } else { Log 'FAIL: 任务计数未更新' }
 Shot '04_added'
 
 # 打印表格相关元素，便于检查
@@ -206,7 +227,7 @@ foreach ($el in $all) { if ($el.Current.ControlType.ProgrammaticName -match 'Tab
 Activate-Proc $pid2
 if ($table) {
     $r = $table.Current.BoundingRectangle
-    [void][ChatGPTTool.Win32]::SetCursorPos([int]($r.X + 60), [int]($r.Y + 50))
+    [void][ChatGPTTool.Win32]::SetCursorPos([int]($r.X + 160), [int]($r.Y + 50))
     Start-Sleep -Milliseconds 150
     [ChatGPTTool.Win32]::mouse_event(0x02, 0, 0, 0, [UIntPtr]::Zero)
     Start-Sleep -Milliseconds 60
@@ -223,7 +244,7 @@ if ($confirm) {
     Shot '05_delete_confirm'
     [void](Click-MsgButton $confirm '是|Yes')
     Start-Sleep -Milliseconds 800
-    if ((Find-Name $win '共 0 个任务').Count -gt 0) { Log 'PASS: 任务已删除' } else { Log 'FAIL: 删除后计数未归零' }
+    if (Find-TextMatch $win '共 0 个任务') { Log 'PASS: 任务已删除' } else { Log 'FAIL: 删除后计数未归零' }
 } else {
     $info = Wait-WinByTitle $pid2 '提示' 2
     if ($info) {
@@ -236,7 +257,7 @@ if ($confirm) {
 Shot '06_after_delete'
 
 # ---------- 4. 重新添加并测试开始/取消 ----------
-if ((Find-Name $win '共 0 个任务').Count -gt 0) {
+if (Find-TextMatch $win '共 0 个任务') {
     $addBtns = Find-Name $win '添加任务'
     [void](Click-El $addBtns[0])
     $dlg = Wait-WinByTitle $pid2 '添加任务' 5
@@ -284,7 +305,7 @@ if ((Find-Name $win '共 0 个任务').Count -gt 0) {
     $saveBtns = Find-Name $dlg '保存'
     [void](Click-El $saveBtns[0])
     Start-Sleep -Milliseconds 1000
-    if ((Find-Name $win '共 1 个任务').Count -gt 0) {
+    if (Find-TextMatch $win '共 1 个任务') {
         Log ('PASS: 相对时间任务已添加（保存时刻 ' + $relStart.ToString('HH:mm:ss') + '，应为约 2 分钟后执行）')
     } else {
         Log 'FAIL: 相对时间任务未添加'

@@ -219,7 +219,7 @@ function Open-Chat([string]$ProjectName, [string]$ChatName) {
                 [void](Invoke-Control (Select-BestControl $proj))
                 Start-Sleep -Milliseconds 1500
             } else {
-                Log "未找到项目入口：$ProjectName"
+                Log "提示：未找到项目「$ProjectName」，请核对左侧项目列表中的名称（区分大小写与符号）"
             }
         }
         $chats = Find-ByName $ChatName @('ControlType.Group', 'ControlType.Button', 'ControlType.ListItem', 'ControlType.TreeItem')
@@ -232,7 +232,7 @@ function Open-Chat([string]$ProjectName, [string]$ChatName) {
             }
             Log '点击后暂未检测到聊天标题，等待后重试'
         } else {
-            Log '侧边栏未找到聊天入口'
+            Log "提示：侧边栏未找到聊天「$ChatName」，请核对项目下的聊天标题是否与界面完全一致"
         }
         Start-Sleep -Milliseconds 800
     }
@@ -252,7 +252,7 @@ function Open-Chat([string]$ProjectName, [string]$ChatName) {
         return $true
     }
     KeyDownUp 0x1B
-    Log '警告：聊天切换失败，为避免发错聊天将跳过该任务'
+    Log "错误：无法打开聊天「$ChatName」，已跳过发送以避免发错聊天"
     return $false
 }
 
@@ -263,7 +263,8 @@ Log "任务数量：$($tasks.Count)"
 if ($dryRun) { Log '试运行模式：只执行到粘贴，不发送' }
 
 $sortedTasks = @($tasks | Sort-Object { [datetime]::Parse([string]$_.Time) })
-$blocked = $false
+$okCount = 0
+$skipCount = 0
 $index = 0
 
 foreach ($t in $sortedTasks) {
@@ -303,15 +304,16 @@ foreach ($t in $sortedTasks) {
             Start-Sleep -Seconds 2
         }
         if (-not $proc) {
-            Log '错误：ChatGPT 未运行，跳过该任务'
-            continue
+            Log '错误：未找到 ChatGPT 窗口，请先启动并登录 ChatGPT 桌面端。后续任务无法执行。'
+            break
         }
         $script:hWnd = [IntPtr]$proc.MainWindowHandle
         [void][ChatGPTTool.Win32]::ShowWindow($script:hWnd, 9)
         $ws = New-Object -ComObject WScript.Shell
         [void]$ws.AppActivate([int]$proc.Id)
         if (-not (Wait-Foreground $proc.Id 6)) {
-            Log '警告：ChatGPT 未能切换到前台（可能锁屏或被占用），跳过该任务'
+            Log "任务 $index 已跳过：ChatGPT 未能切换到前台（可能锁屏或被其他程序占用），未发送任何内容。"
+            $skipCount++
             Shot $taskFolder '01_not_foreground'
             continue
         }
@@ -328,12 +330,15 @@ foreach ($t in $sortedTasks) {
             Start-Sleep -Milliseconds 800
         }
         if (-not $script:win) {
-            Log '错误：无法连接 ChatGPT 界面，跳过该任务'
+            Log "任务 $index 已跳过：无法连接 ChatGPT 界面（程序可能正在更新或未完成加载）。"
+            $skipCount++
             continue
         }
         Shot $taskFolder '01_activated'
 
         if (-not (Open-Chat $proj $chat)) {
+            Log "任务 $index 已跳过：无法确认聊天「$chat」已打开，本次未发送任何内容。请核对项目名称「$proj」和聊天名称。"
+            $skipCount++
             Shot $taskFolder '02_chat_failed'
             continue
         }
@@ -348,7 +353,8 @@ foreach ($t in $sortedTasks) {
             $edit = Wait-ForComposer 8
         }
         if (-not $edit) {
-            Log '错误：未找到消息输入框，跳过该任务'
+            Log "任务 $index 已跳过：未找到消息输入框，聊天界面可能未完全加载。"
+            $skipCount++
             Shot $taskFolder '03_no_composer'
             continue
         }
@@ -383,6 +389,7 @@ foreach ($t in $sortedTasks) {
             KeyDownUp 0x2E
             Start-Sleep -Milliseconds 300
             Shot $taskFolder '04_dryrun_cleared'
+            $okCount++
             continue
         }
 
@@ -403,10 +410,10 @@ foreach ($t in $sortedTasks) {
         }
 
         if ($send -and -not $send.Current.IsEnabled) {
-            Log '已阻止发送：发送按钮不可用（额度或速率限制），内容保留在输入框'
+            Log "任务 $index 已跳过：发送按钮不可用（额度或速率限制），内容保留在输入框。其余任务将继续按各自时间独立执行。"
             Shot $taskFolder '04_blocked'
-            $blocked = $true
-            break
+            $skipCount++
+            continue
         }
 
         if ($send) { Log "发送按钮可用状态：$($send.Current.IsEnabled)" } else { Log '未找到发送按钮，将按回车尝试' }
@@ -425,20 +432,22 @@ foreach ($t in $sortedTasks) {
         if ($done) {
             Log '已确认消息提交'
         } else {
-            Log '警告：未能确认发送结果，请查看截图'
+            Log "警告：未能确认发送结果，请查看截图。若聊天未收到消息，请检查 ChatGPT 是否异常。"
         }
         Shot $taskFolder '04_after_send'
+        $okCount++
     } catch {
         Log "任务 $index 执行异常：$($_.Exception.Message)"
+        $skipCount++
         try { Shot $taskFolder '99_error' } catch { }
     }
 
     Start-Sleep -Milliseconds 1200
 }
 
-if ($blocked) {
-    Log '整体结束：因额度限制提前终止'
+if ($skipCount -gt 0) {
+    Log "全部任务处理结束：成功 $okCount 个，跳过 $skipCount 个（跳过原因见上方日志）。"
 } else {
-    Log '整体结束：全部任务已处理'
+    Log "全部任务处理结束：成功 $okCount 个，全部任务均已处理。"
 }
 exit 0
